@@ -1,73 +1,219 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import Recorder from './Recorder';
+import type { RecorderHandle } from './Recorder';
+import { generateQuestion, getScoredFeedback, transcribeAudio, summarizeQuestion } from '../utils/openai';
+import type { RecordItem, Props } from '../types/interview';
 
-const InterviewBox = () => {
-    const [question, setQuestion] = useState(
-        'React에서 함수형 컴포넌트와 클래스형 컴포넌트 중 어떤 것을 주로 선택하시며, 그 선택의 근거는 무엇이었나요? 특정 상황에서 다른 방식을 선택해본 경험이 있다면 그 이유도 함께 말씀해주세요.'
-    );
+const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onLogUpdated }) => {
+    const [question, setQuestion] = useState('');
+    const [answer, setAnswer] = useState('');
+    const [feedback, setFeedback] = useState('');
+    const [modelAnswer, setModelAnswer] = useState('');
+    const [liveTranscript, setLiveTranscript] = useState('');
     const [recording, setRecording] = useState(false);
     const [seconds, setSeconds] = useState(0);
-    const [liveTranscript, setLiveTranscript] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [isDuplicate, setIsDuplicate] = useState(false);
+    const [questionReady, setQuestionReady] = useState(false);
+
+    const recorderRef = useRef<RecorderHandle>(null);
+    const recognitionRef = useRef<SpeechRecognition | null>(null);
+    const startTimeRef = useRef<number | null>(null);
+    const recordingDurationRef = useRef<number>(0);
+
+    const [field, setField] = useState('');
+    const [stack, setStack] = useState('');
+
+    useEffect(() => {
+        const setup = async () => {
+            let f = propField;
+            let s = propStack;
+            if (!f || !s) {
+                const saved = localStorage.getItem('interviewUserInfo');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    f = parsed.field;
+                    s = parsed.stack;
+                }
+            }
+            setField(f ?? '');
+            setStack(s ?? '');
+
+            if (f && s) {
+                const q = await generateQuestion(f, s);
+                setQuestion(q);
+                setQuestionReady(true);
+            }
+        };
+        setup();
+    }, [propField, propStack]);
 
     useEffect(() => {
         let timer: ReturnType<typeof setInterval>;
         if (recording) {
-            timer = setInterval(() => {
-                setSeconds((prev) => prev + 1);
-            }, 1000);
-
-            // ✅ 예시: 실시간 텍스트 mock (실제로는 SpeechRecognition 사용)
-            setLiveTranscript('말씀하신 내용이 여기에 실시간으로 표시됩니다...');
+            timer = setInterval(() => setSeconds((prev) => prev + 1), 1000);
         } else {
             setSeconds(0);
-            setLiveTranscript('');
         }
-
         return () => clearInterval(timer);
     }, [recording]);
 
-    const toggleRecording = () => {
-        setRecording((prev) => !prev);
+    const startSpeechRecognition = () => {
+        const SpeechRecognitionConstructor =
+            window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!SpeechRecognitionConstructor) {
+            alert('이 브라우저는 음성 인식을 지원하지 않습니다.');
+            return;
+        }
+
+        const recognition = new (SpeechRecognitionConstructor as unknown as new () => SpeechRecognition)();
+        recognition.lang = 'ko-KR';
+        recognition.interimResults = true;
+
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
+            let text = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (!event.results[i].isFinal) {
+                    text += event.results[i][0].transcript;
+                }
+            }
+            console.log('🎤 실시간 인식:', text);
+            setLiveTranscript(text);
+        };
+
+        recognition.onend = () => recognition.start();
+
+        recognitionRef.current = recognition;
+        recognition.start();
     };
 
-    const regenerateQuestion = () => {
-        setQuestion('새로운 질문이 생성되었습니다.');
+    const stopSpeechRecognition = () => {
+        recognitionRef.current?.stop();
+        recognitionRef.current = null;
+    };
+
+    const startRecording = () => {
+        console.log('▶️ 녹음 시작');
+        startTimeRef.current = Date.now();
+        setRecording(true);
+        setAnswer('');
+        setFeedback('');
+        setModelAnswer('');
+        setLiveTranscript('');
+        startSpeechRecognition();
+        recorderRef.current?.start();
+    };
+
+    const stopRecording = () => {
+        console.log('⏹️ 녹음 중지');
+        recorderRef.current?.stop();
+        stopSpeechRecognition();
+        setRecording(false);
+        if (startTimeRef.current) {
+            recordingDurationRef.current = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        }
+    };
+
+    const handleRecordingStop = async (blob: Blob) => {
+        console.log('📦 handleRecordingStop triggered');
+        setIsSaving(true);
+        const transcript = await transcribeAudio(blob);
+        const summary = await summarizeQuestion(question);
+        const { feedback: fb, score, modelAnswer: example } = await getScoredFeedback(question, transcript);
+
+        if (!transcript?.trim() || !fb?.trim()) {
+            setIsSaving(false);
+            return;
+        }
+
+        const prev = JSON.parse(localStorage.getItem('interviewLogs') || '[]') as RecordItem[];
+        const alreadyExists = prev.some((log) => log.question === question);
+        if (alreadyExists) {
+            setIsDuplicate(true);
+            setIsSaving(false);
+            return;
+        }
+
+        const record: RecordItem = {
+            id: Date.now().toString(),
+            date: new Date().toLocaleString('ko-KR', { hour12: false }),
+            question,
+            summary,
+            answer: transcript,
+            feedback: fb,
+            score,
+            duration: recordingDurationRef.current,
+        };
+
+        try {
+            localStorage.setItem('interviewLogs', JSON.stringify([record, ...prev]));
+            onLogUpdated?.();
+        } catch (e) {
+            console.error('❌ 저장 실패:', e);
+        }
+
+        setAnswer(transcript);
+        setFeedback(fb);
+        setModelAnswer(example);
+        setLiveTranscript('');
+        setIsSaving(false);
+        setIsDuplicate(true);
+    };
+
+    const regenerateQuestion = async () => {
+        setQuestionReady(false);
+        setIsDuplicate(false);
+        setAnswer('');
+        setFeedback('');
+        setModelAnswer('');
+        setLiveTranscript('');
+        const q = await generateQuestion(field, stack);
+        setQuestion(q);
+        setQuestionReady(true);
     };
 
     return (
         <div className="flex flex-col items-center justify-start min-h-screen p-8 bg-gray-50 text-center space-y-8">
-            {/* 질문 */}
-            <div className="max-w-4xl">
+            <div className="max-w-3xl">
                 <p className="text-lg font-semibold text-gray-900">
-                    <span role="img" aria-label="mic">🎤</span>{' '}
-                    <strong>질문:</strong> {question}
+                    🎤 <strong>질문:</strong> {question}
                 </p>
             </div>
 
-            {/* 시작/중지 버튼 */}
             <button
-                className={`w-[150px] h-[150px] rounded-full text-white text-xl font-bold shadow-md transition-all duration-300 ${recording ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
-                    }`}
-                onClick={toggleRecording}
+                className={`w-[150px] h-[150px] rounded-full text-white text-xl font-bold shadow transition ${recording ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}
+                onClick={recording ? stopRecording : startRecording}
+                disabled={!questionReady || isSaving}
             >
                 {recording ? '중지하기' : '시작하기'}
             </button>
 
-            {/* 조건부 UI */}
-            {!recording ? (
-                <button
-                    onClick={regenerateQuestion}
-                    className="mt-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded shadow-md"
-                >
-                    🔄 다른 질문 요청
-                </button>
-            ) : (
-                <div className="text-gray-700 text-md mt-2 space-y-2">
+            {recording && (
+                <div className="text-gray-700 space-y-2">
                     <p>⏱️ 경과 시간: <strong>{seconds}초</strong></p>
                     {liveTranscript && (
                         <p className="text-sm text-gray-600">🎤 <strong>실시간:</strong> {liveTranscript}</p>
                     )}
                 </div>
             )}
+
+            {!recording && isDuplicate && (
+                <button
+                    onClick={regenerateQuestion}
+                    className="mt-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded shadow"
+                >
+                    🔄 다음 질문 요청
+                </button>
+            )}
+
+            <div className="text-left max-w-3xl space-y-4 mt-8">
+                {answer && <p><strong>📝 내 답변:</strong> {answer}</p>}
+                {feedback && <p><strong>💡 피드백:</strong> {feedback}</p>}
+                {modelAnswer && <p><strong>📘 모범답안:</strong> {modelAnswer}</p>}
+            </div>
+
+            <Recorder ref={recorderRef} onStop={handleRecordingStop} maxDuration={60} />
         </div>
     );
 };
