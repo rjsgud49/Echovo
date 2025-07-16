@@ -1,10 +1,12 @@
 // ✅ src/components/Recorder.tsx
 import { forwardRef, useImperativeHandle, useRef, useState, useEffect } from 'react';
 
+// Recorder.tsx
 export interface RecorderHandle {
-    start: () => void;
+    start: (stream: MediaStream) => void;
     stop: () => void;
 }
+
 
 interface RecorderProps {
     onStop: (blob: Blob) => void;
@@ -16,6 +18,7 @@ const Recorder = forwardRef<RecorderHandle, RecorderProps>(({ onStop, maxDuratio
     const chunksRef = useRef<Blob[]>([]);
     const timerRef = useRef<number | null>(null);
     const intervalRef = useRef<number | null>(null);
+    const streamRef = useRef<MediaStream | null>(null); // 추가
 
     const [elapsedTime, setElapsedTime] = useState(0);
     const [recording, setRecording] = useState(false);
@@ -58,6 +61,7 @@ const Recorder = forwardRef<RecorderHandle, RecorderProps>(({ onStop, maxDuratio
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
             console.log('✅ 마이크 스트림 확보됨', stream);
 
             const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
@@ -90,11 +94,19 @@ const Recorder = forwardRef<RecorderHandle, RecorderProps>(({ onStop, maxDuratio
     };
 
 
+
     const stop = () => {
         console.log('🛑 MediaRecorder stop() 호출됨');
         mediaRecorderRef.current?.stop();
         clearTimers();
+
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+            console.log('🔌 Recorder 내 마이크 stream 해제 완료');
+        }
     };
+
 
     const formatTime = (sec: number) => {
         const m = Math.floor(sec / 60).toString().padStart(2, '0');
@@ -103,9 +115,9 @@ const Recorder = forwardRef<RecorderHandle, RecorderProps>(({ onStop, maxDuratio
     };
 
     return recording ? (
-        <p className="text-sm text-gray-600 mt-2">
+        <h2 className="text-md text-gray-600 mt-2">
             🎙️ 녹음 중... <strong>{formatTime(elapsedTime)}</strong> / {formatTime(maxDuration)}
-        </p>
+        </h2>
     ) : null;
 });
 

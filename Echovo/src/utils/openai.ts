@@ -125,7 +125,7 @@ export async function summarizeQuestion(question: string): Promise<string> {
             messages: [
                 {
                     role: 'system',
-                    content: '너는 면접 기록을 요약하는 도우미야. 면접 질문을 사용자가 리스트에서 보기 쉽게 1줄로 핵심 주제만 간결하게 요약해줘. 최대 12자 이내가 이상적이야. 예) useEffect 정리, 이벤트 전파 등'
+                    content: '너는 면접 기록을 요약하는 도우미야. 면접 질문을 사용자가 리스트에서 보기 쉽게 1줄로 핵심 주제만 간결하게 요약해줘. 최대 12자 이내가 이상적이야 그리고 사용자에게 답변을 제공할때에 ""를 넣지마. 예) useEffect 정리, 이벤트 전파 등'
                 },
                 {
                     role: 'user',
@@ -230,9 +230,13 @@ export const getScoredFeedback = async (
 지원자의 답변을 평가할 때는 다음 기준을 고려해:
 - 논리성, 관련성, 구체성, 전달력
 
-그에 따라 1~5점 점수를 주고, 실용적인 피드백을 작성해.
-그리고 반드시 "이렇게 답하는것이 질문에 대한 최선의 답변이다"이라는 모범답안을 제시해.
-`,
+형식은 반드시 아래처럼 응답해. 불필요한 말이나 머리말 없이:
+
+점수: (1~5 중 하나의 숫자)
+피드백: (간단하고 실용적인 피드백)
+모범답안 예시: (구체적인 실무 기반 답변, 반드시 포함할 것)
+
+답변이 부실하더라도 모범답안은 반드시 포함할 것. 생략하지 마.`,
                 },
                 {
                     role: 'user',
@@ -240,12 +244,7 @@ export const getScoredFeedback = async (
 면접 질문: ${question}
 면접자 답변: ${answer}
 
-다음 형식을 반드시 지켜서 응답해:
-
-점수: X
-피드백: (간단하고 실용적인 피드백)
-모범답안 예시: (실무 기반 예시 답변)
-`,
+위 기준과 형식에 맞게 응답해줘.`,
                 },
             ],
         }),
@@ -255,8 +254,8 @@ export const getScoredFeedback = async (
     const content = data.choices?.[0]?.message?.content || '';
 
     const scoreMatch = content.match(/점수[:：]?\s*(\d)/);
-    const feedbackMatch = content.match(/피드백[:：]?\s*(.*)/);
-    const modelAnswerMatch = content.match(/모범답안 예시[:：]?\s*([\s\S]*)/); // 끝까지 추출
+    const feedbackMatch = content.match(/피드백[:：]?\s*(.+?)(?:\n|$)/s);
+    const modelAnswerMatch = content.match(/모범답안 예시[:：]?\s*([\s\S]*)/);
 
     const score = scoreMatch ? parseInt(scoreMatch[1], 10) : 1;
     const feedback = feedbackMatch?.[1]?.trim() || '피드백을 가져오지 못했습니다.';
@@ -264,3 +263,4 @@ export const getScoredFeedback = async (
 
     return { score, feedback, modelAnswer };
 };
+

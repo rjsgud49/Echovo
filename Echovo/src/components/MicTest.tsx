@@ -5,6 +5,9 @@ interface ISpeechRecognition extends EventTarget {
     continuous: boolean;
     interimResults: boolean;
     onresult: ((this: ISpeechRecognition, ev: SpeechRecognitionEvent) => void) | null;
+    onerror: ((this: ISpeechRecognition, ev: Event) => void) | null;
+    onstart: (() => void) | null;
+    onend: (() => void) | null;
     start(): void;
     stop(): void;
     abort(): void;
@@ -22,21 +25,6 @@ declare global {
         SpeechRecognition: SpeechRecognitionConstructor;
     }
 }
-
-interface ISpeechRecognition extends EventTarget {
-    lang: string;
-    continuous: boolean;
-    interimResults: boolean;
-    onresult: ((this: ISpeechRecognition, ev: SpeechRecognitionEvent) => void) | null;
-    onerror: ((this: ISpeechRecognition, ev: Event) => void) | null;
-    onstart: (() => void) | null;
-    onend: (() => void) | null;
-    start(): void;
-    stop(): void;
-    abort(): void;
-}
-
-
 const MicTestWithSTT: React.FC = () => {
     const [testing, setTesting] = useState(false);
     const [volume, setVolume] = useState(0);
@@ -46,23 +34,49 @@ const MicTestWithSTT: React.FC = () => {
     const recognitionRef = useRef<ISpeechRecognition | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const animationRef = useRef<number | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
 
+
+
+
+
+
+    
     const startTest = async () => {
         console.log('🎬 [1] startTest() 호출됨');
 
         try {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                alert('이 브라우저는 마이크를 지원하지 않습니다.');
+                console.error('❌ getUserMedia 지원되지 않음');
+                return;
+            }
+
+            const micPermission = await navigator.permissions?.query?.({ name: 'microphone' as PermissionName });
+            console.log('🔐 마이크 권한 상태:', micPermission?.state);
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputDevices = devices.filter((d) => d.kind === 'audioinput');
+            console.log('🎤 감지된 마이크 장치 목록:', audioInputDevices);
+
+            if (audioInputDevices.length === 0) {
+                alert('마이크 장치가 감지되지 않았습니다.');
+                return;
+            }
+
             console.log('🛎️ [2] getUserMedia 요청 시작...');
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
             console.log('✅ [3] 마이크 스트림 획득 성공:', stream);
 
             const tracks = stream.getAudioTracks();
             if (tracks.length === 0) {
-                console.warn('⚠️ [3-1] 마이크 트랙이 존재하지 않음');
-            } else {
-                console.log('🔍 [3-2] 마이크 트랙 정보:', tracks[0]);
+                alert('마이크 트랙이 존재하지 않습니다.');
+                return;
             }
 
             const audioCtx = new AudioContext();
+            await audioCtx.resume();
             console.log('🎧 [4] AudioContext 생성 완료');
 
             audioContextRef.current = audioCtx;
@@ -84,27 +98,26 @@ const MicTestWithSTT: React.FC = () => {
 
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
-                alert('이 브라우저는 SpeechRecognition을 지원하지 않습니다.');
-                console.error('❌ [7] SpeechRecognition 생성 불가');
+                alert('이 브라우저는 음성 인식을 지원하지 않습니다.');
+                console.error('❌ [7] SpeechRecognition 미지원');
                 return;
             }
-            console.log('✅ [7] SpeechRecognition 생성됨');
 
+            console.log('✅ [7] SpeechRecognition 생성됨');
             const recognition = new SpeechRecognition();
             recognition.lang = 'ko-KR';
             recognition.continuous = true;
             recognition.interimResults = true;
 
             recognition.onresult = (event: SpeechRecognitionEvent) => {
-                const result = Array.from(event.results)
-                    .map((r) => r[0].transcript)
-                    .join('');
+                const result = Array.from(event.results).map((r) => r[0].transcript).join('');
                 console.log('🗣️ [8] 음성 인식 결과:', result);
                 setTranscript(result);
             };
 
             recognition.onerror = (e) => {
                 console.error('❌ [9] SpeechRecognition 에러 발생:', e);
+                alert('음성 인식 중 오류가 발생했습니다.');
             };
 
             recognition.onstart = () => {
@@ -123,12 +136,22 @@ const MicTestWithSTT: React.FC = () => {
             setTranscriptVisible(true);
             setTesting(true);
             console.log('🏁 [14] 상태 업데이트 완료: testing = true');
-        } catch (err) {
-            console.error('❌ [E] 마이크 권한 에러 또는 AudioContext 에러:', err);
-            alert('마이크 권한이 필요합니다. 브라우저 설정을 확인해주세요.');
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                console.error('❌ [E] 예외 발생:', err.message);
+                if (err.name === 'NotAllowedError') {
+                    alert('마이크 권한이 차단되었습니다.');
+                } else if (err.name === 'NotFoundError') {
+                    alert('마이크 장치가 감지되지 않았습니다.');
+                } else {
+                    alert('마이크 접근 중 알 수 없는 오류가 발생했습니다.');
+                }
+            } else {
+                console.error('❓ 알 수 없는 오류 객체:', err);
+                alert('예기치 않은 오류가 발생했습니다.');
+            }
         }
     };
-
 
     const stopTest = () => {
         console.log('⛔ stopTest() 호출됨');
@@ -147,9 +170,15 @@ const MicTestWithSTT: React.FC = () => {
 
         if (recognitionRef.current) {
             recognitionRef.current.stop();
+            recognitionRef.current = null;
             console.log('🛑 SpeechRecognition 중단됨');
         }
-        recognitionRef.current = null;
+
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+            console.log('🔌 MediaStream 트랙 중단됨');
+        }
 
         setTesting(false);
         setVolume(0);

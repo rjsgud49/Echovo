@@ -1,19 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import RecordSidebar from '../components/RecordSidebar';
 import MicTestWithSTT from '../components/MicTest';
+import type { RecordItem } from '../types/interview';
 
 const SettingsPage: React.FC = () => {
-  const [profile, setProfile] = useState({
-    field: '',
-    stack: '',
-    old: '',
-  });
+  const [profile, setProfile] = useState({ field: '', stack: '', old: '' });
+  const [records, setRecords] = useState<RecordItem[]>([]); // ✅ 통계 기록 추가
 
   useEffect(() => {
+    // 사용자 정보 불러오기
     const saved = localStorage.getItem('interviewUserInfo');
-    if (saved) {
-      setProfile(JSON.parse(saved));
-    }
+    if (saved) setProfile(JSON.parse(saved));
+
+    // ✅ 인터뷰 기록 불러오기 (StatisticsPage 방식)
+    const savedLogs = localStorage.getItem('interviewLogs');
+    if (savedLogs) setRecords(JSON.parse(savedLogs));
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -27,19 +28,17 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* 사이드바 */}
-      <RecordSidebar />
+    <div className="flex h-screen bg-gray-50" style={{ userSelect: 'none' }}>
+      {/* ✅ 기록 전달 */}
+      <RecordSidebar records={records} />
 
-      {/* 메인 콘텐츠 */}
       <main className="flex-grow p-8 overflow-y-auto">
         <div className="max-w-3xl mx-auto space-y-10">
           <h2 className="text-2xl font-bold text-gray-800 mb-4">⚙️ 설정 페이지</h2>
 
-          {/* 면접 기본 정보 입력 */}
+          {/* 면접 기본 정보 */}
           <section className="bg-white rounded shadow p-6">
             <h3 className="text-lg font-semibold mb-4">👤 면접 기본 정보</h3>
-
             <div className="space-y-4">
               <div>
                 <label className="block text-gray-700 font-medium mb-1">면접 분야</label>
@@ -51,7 +50,6 @@ const SettingsPage: React.FC = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
               <div>
                 <label className="block text-gray-700 font-medium mb-1">주 사용 스택</label>
                 <input
@@ -62,7 +60,6 @@ const SettingsPage: React.FC = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
               <div>
                 <label className="block text-gray-700 font-medium mb-1">경력</label>
                 <input
@@ -73,7 +70,6 @@ const SettingsPage: React.FC = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
               <button
                 onClick={handleSave}
                 className="mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold shadow"

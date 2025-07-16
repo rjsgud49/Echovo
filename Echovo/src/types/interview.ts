@@ -6,9 +6,11 @@ export interface RecordItem {
     summary: string;
     answer: string;
     feedback: string;
+    modelAnswer: string;
     score?: number;
     duration?: number;
 }
+
     
 // 📊 통계 요약 타입
 export interface StatsSummary {

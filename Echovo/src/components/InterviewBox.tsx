@@ -3,6 +3,7 @@ import Recorder from './Recorder';
 import type { RecorderHandle } from './Recorder';
 import { generateQuestion, getScoredFeedback, transcribeAudio, summarizeQuestion } from '../utils/openai';
 import type { RecordItem, Props } from '../types/interview';
+import {MessageCircle } from 'lucide-react';
 
 const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onLogUpdated }) => {
     const [question, setQuestion] = useState('');
@@ -11,18 +12,20 @@ const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onL
     const [modelAnswer, setModelAnswer] = useState('');
     const [liveTranscript, setLiveTranscript] = useState('');
     const [recording, setRecording] = useState(false);
-    const [seconds, setSeconds] = useState(0);
+    // const [seconds, setSeconds] = useState(0);
     const [isSaving, setIsSaving] = useState(false);
     const [isDuplicate, setIsDuplicate] = useState(false);
     const [questionReady, setQuestionReady] = useState(false);
 
-    const recorderRef = useRef<RecorderHandle>(null);
-    const recognitionRef = useRef<SpeechRecognition | null>(null);
-    const startTimeRef = useRef<number | null>(null);
-    const recordingDurationRef = useRef<number>(0);
-
     const [field, setField] = useState('');
     const [stack, setStack] = useState('');
+
+    const recorderRef = useRef<RecorderHandle>(null);
+    const recognitionRef = useRef<SpeechRecognition | null>(null);
+    const isRecognitionStoppedByUser = useRef(false);
+    const streamRef = useRef<MediaStream | null>(null);
+    const startTimeRef = useRef<number | null>(null);
+    const recordingDurationRef = useRef<number>(0);
 
     useEffect(() => {
         const setup = async () => {
@@ -48,15 +51,15 @@ const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onL
         setup();
     }, [propField, propStack]);
 
-    useEffect(() => {
-        let timer: ReturnType<typeof setInterval>;
-        if (recording) {
-            timer = setInterval(() => setSeconds((prev) => prev + 1), 1000);
-        } else {
-            setSeconds(0);
-        }
-        return () => clearInterval(timer);
-    }, [recording]);
+    // useEffect(() => {
+    //     let timer: ReturnType<typeof setInterval>;
+    //     if (recording) {
+    //         timer = setInterval(() => setSeconds((prev) => prev + 1), 1000);
+    //     } else {
+    //         setSeconds(0);
+    //     }
+    //     return () => clearInterval(timer);
+    // }, [recording]);
 
     const startSpeechRecognition = () => {
         const SpeechRecognitionConstructor =
@@ -78,31 +81,75 @@ const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onL
                     text += event.results[i][0].transcript;
                 }
             }
-            console.log('🎤 실시간 인식:', text);
             setLiveTranscript(text);
         };
 
-        recognition.onend = () => recognition.start();
+        recognition.onend = () => {
+            if (!isRecognitionStoppedByUser.current) {
+                recognition.start(); // 자동 재시작 (수동 중지 아닐 때만)
+            } else {
+                console.log('🎤 사용자가 음성 인식을 수동으로 중지했기 때문에 재시작하지 않음');
+            }
+        };
 
+        recognition.onerror = (event) => {
+            console.error('🎤 음성 인식 오류:', event.error);
+        };
+
+        isRecognitionStoppedByUser.current = false; // 자동 재시작 허용
         recognitionRef.current = recognition;
         recognition.start();
     };
 
+    // stop 함수
     const stopSpeechRecognition = () => {
-        recognitionRef.current?.stop();
-        recognitionRef.current = null;
+        isRecognitionStoppedByUser.current = true;
+        if (recognitionRef.current) {
+            recognitionRef.current.stop(); // 일단 정지 요청만 함
+            // recognitionRef.current = null; ❌ 여기서 지우지 말고...
+        }
     };
 
-    const startRecording = () => {
+    if (recognitionRef.current) {
+        recognitionRef.current.onend = () => {
+            if (!isRecognitionStoppedByUser.current) {
+                recognitionRef.current?.start(); // 안전하게 재시작
+            } else {
+                recognitionRef.current = null;
+            }
+        };
+    }
+
+
+
+
+
+
+    const startRecording = async () => {
         console.log('▶️ 녹음 시작');
-        startTimeRef.current = Date.now();
-        setRecording(true);
-        setAnswer('');
-        setFeedback('');
-        setModelAnswer('');
-        setLiveTranscript('');
-        startSpeechRecognition();
-        recorderRef.current?.start();
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
+            const track = stream.getAudioTracks()[0];
+            if (!track) {
+                alert('마이크 장치가 올바르게 연결되지 않았습니다.');
+                return;
+            }
+
+            startSpeechRecognition();
+
+            recorderRef.current?.start(stream);
+            startTimeRef.current = Date.now();
+            setRecording(true);
+            setAnswer('');
+            setFeedback('');
+            setModelAnswer('');
+            setLiveTranscript('');
+        } catch (err) {
+            console.error('🎙️ 마이크 접근 오류:', err);
+            alert('마이크를 사용할 수 없습니다.');
+        }
     };
 
     const stopRecording = () => {
@@ -110,8 +157,15 @@ const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onL
         recorderRef.current?.stop();
         stopSpeechRecognition();
         setRecording(false);
+
         if (startTimeRef.current) {
             recordingDurationRef.current = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        }
+
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+            console.log('🔌 마이크 stream 해제 완료');
         }
     };
 
@@ -142,6 +196,7 @@ const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onL
             summary,
             answer: transcript,
             feedback: fb,
+            modelAnswer: example,
             score,
             duration: recordingDurationRef.current,
         };
@@ -175,23 +230,46 @@ const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onL
 
     return (
         <div className="flex flex-col items-center justify-start min-h-screen p-8 bg-gray-50 text-center space-y-8">
-            <div className="max-w-3xl">
-                <p className="text-lg font-semibold text-gray-900">
-                    🎤 <strong>질문:</strong> {question}
-                </p>
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 mb-8 max-w-4xl min-w-4xl w-full mx-auto">
+                <div className="flex items-start space-x-4">
+                    <div className="w-12 h-12 bg-gradient-to-r from-amber-400 to-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                        <MessageCircle className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900 mb-2"></h2>
+                        <p className="text-gray-700 text-lg leading-relaxed">
+                            {questionReady && question?.trim()
+                                ? question
+                                : '⏳ 질문을 준비 중입니다...'}
+                        </p>
+                    </div>
+                </div>
             </div>
 
-            <button
-                className={`w-[150px] h-[150px] rounded-full text-white text-xl font-bold shadow transition ${recording ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}
-                onClick={recording ? stopRecording : startRecording}
-                disabled={!questionReady || isSaving}
-            >
-                {recording ? '중지하기' : '시작하기'}
-            </button>
+            {/* 녹음 버튼은 질문 준비 완료 && 중복 질문 아님 && 피드백 생성 중 아님일 때만 */}
+            {questionReady && !isDuplicate && !isSaving && (
+                <button
+                    className={`w-[150px] h-[150px] rounded-full text-white text-xl font-bold shadow transition ${recording ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}
+                    onClick={recording ? stopRecording : startRecording}
+                    disabled={answer !== ''}
+                >
+                    {recording ? '중지하기' : '시작하기'}
+                </button>
+            )}
+
+            {/* 질문 준비 중이거나 피드백 생성 중일 때 메시지 출력 */}
+            {(!questionReady || isSaving) && (
+                <h2 className="text-sm text-gray-500">
+                    {!questionReady
+                        ? ''
+                        : isSaving
+                            ? '💭 피드백 생성 중입니다. 잠시만 기다려주세요...'
+                            : ''}
+                </h2>
+            )}
 
             {recording && (
                 <div className="text-gray-700 space-y-2">
-                    <p>⏱️ 경과 시간: <strong>{seconds}초</strong></p>
                     {liveTranscript && (
                         <p className="text-sm text-gray-600">🎤 <strong>실시간:</strong> {liveTranscript}</p>
                     )}
@@ -216,6 +294,7 @@ const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onL
             <Recorder ref={recorderRef} onStop={handleRecordingStop} maxDuration={60} />
         </div>
     );
+
 };
 
 export default InterviewBox;
