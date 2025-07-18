@@ -1,18 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import RecordSidebar from '../components/RecordSidebar';
 import MicTestWithSTT from '../components/MicTest';
-import RecordModal from '../components/RecordModal'; // ✅ 모달 import
 import type { RecordItem } from '../types/interview';
 
 const SettingsPage: React.FC = () => {
   const [profile, setProfile] = useState({ field: '', stack: '', old: '' });
-  const [records, setRecords] = useState<RecordItem[]>([]);
-  const [selectedRecord, setSelectedRecord] = useState<RecordItem | null>(null); // ✅ 모달 상태 추가
+  const [records, setRecords] = useState<RecordItem[]>([]); // ✅ 통계 기록 추가
 
   useEffect(() => {
+    // 사용자 정보 불러오기
     const saved = localStorage.getItem('interviewUserInfo');
     if (saved) setProfile(JSON.parse(saved));
 
+    // ✅ 인터뷰 기록 불러오기 (StatisticsPage 방식)
     const savedLogs = localStorage.getItem('interviewLogs');
     if (savedLogs) setRecords(JSON.parse(savedLogs));
   }, []);
@@ -29,8 +29,8 @@ const SettingsPage: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-gray-50" style={{ userSelect: 'none' }}>
-      {/* ✅ onSelect 추가 */}
-      <RecordSidebar records={records} onSelect={setSelectedRecord} />
+      {/* ✅ 기록 전달 */}
+      <RecordSidebar records={records} />
 
       <main className="flex-grow p-8 overflow-y-auto">
         <div className="max-w-3xl mx-auto space-y-10">
@@ -86,14 +86,6 @@ const SettingsPage: React.FC = () => {
           </section>
         </div>
       </main>
-
-      {/* ✅ 선택된 기록 있을 경우 모달 표시 */}
-      {selectedRecord && (
-        <RecordModal
-          record={selectedRecord}
-          onClose={() => setSelectedRecord(null)}
-        />
-      )}
     </div>
   );
 };

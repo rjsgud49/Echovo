@@ -66,11 +66,11 @@ const StatsSummary: React.FC<Props> = ({ records }) => {
     }, []);
 
     if (loading) {
-        return <div className="text-gray-500 p-4 min-h-[90px]">⏳ 목표를 불러오는 중입니다...</div>;
+        return <div className="text-gray-500 p-4">⏳ 목표를 불러오는 중입니다...</div>;
     }
 
     return (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 min-h-[90px]">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             {/* 평균 점수 */}
             <div className="bg-white shadow rounded-lg p-4 text-center">
                 <div className="flex justify-between items-center gap-4">
