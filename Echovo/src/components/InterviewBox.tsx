@@ -174,8 +174,7 @@ const InterviewBox: React.FC<Props> = ({ field: propField, stack: propStack, onL
         setIsSaving(true);
         const transcript = await transcribeAudio(blob);
         const summary = await summarizeQuestion(question);
-        const { feedback: fb, score, modelAnswer: example } = await getScoredFeedback(question, transcript);
-
+        const { feedback: fb, score, modelAnswer: example } = await getScoredFeedback(question, transcript, field);
         if (!transcript?.trim() || !fb?.trim()) {
             setIsSaving(false);
             return;
