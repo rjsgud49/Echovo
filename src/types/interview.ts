@@ -9,6 +9,7 @@ export interface RecordItem {
     modelAnswer: string;
     score?: number;
     duration?: number;
+    category?: string;// 👈 이 부분 추가
 }
 
     

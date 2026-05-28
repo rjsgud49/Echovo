@@ -213,7 +213,8 @@ export async function summarizeQuestion(question: string): Promise<string> {
 // ✅ GPT로 점수 + 피드백 함께 요청
 export const getScoredFeedback = async (
     question: string,
-    answer: string
+    answer: string,
+    category: string
 ): Promise<{ feedback: string; score: number; modelAnswer: string }> => {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -227,6 +228,7 @@ export const getScoredFeedback = async (
                 {
                     role: 'system',
                     content: `넌 10년차 실무 기반 IT 기술 면접관이야.
+분야: ${category}
 지원자의 답변을 평가할 때는 다음 기준을 고려해:
 - 논리성, 관련성, 구체성, 전달력
 

@@ -8,8 +8,23 @@ const HomePage = () => {
     };
 
     return (
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+            <div
+                style={{
+                    backgroundColor: '#fff3cd',
+                    borderBottom: '1px solid #ffc107',
+                    padding: '0.75rem 1.5rem',
+                    textAlign: 'center',
+                    fontSize: '0.95rem',
+                    color: '#856404',
+                    fontWeight: 500,
+                }}
+            >
+                ⚠️ 현재 API 크레딧 부족으로 AI 기능이 작동하지 않습니다. 포트폴리오 데모용으로만 참고해 주세요.
+            </div>
         <div
             style={{
+                flex: 1,
                 minHeight: '100vh',
                 display: 'flex',
                 flexDirection: 'column',
@@ -72,6 +87,7 @@ const HomePage = () => {
             >
                 면접 시작하기 →
             </button>
+        </div>
         </div>
     );
 };
